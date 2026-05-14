@@ -1,0 +1,16 @@
+[project]
+name = "99-project"
+version = "0.1.0"
+description = "Kafka → Spark Structured Streaming → Postgres Star Schema pipeline"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "confluent-kafka>=2.3.0",
+    "pandas>=2.3.3",
+    "plotly>=6.5.2",
+    "psycopg2-binary>=2.9.11",
+    "python-dotenv>=1.2.1",
+    "sqlalchemy>=2.0.47",
+    "streamlit>=1.54.0",
+    "user-agents>=2.2.0",
+]

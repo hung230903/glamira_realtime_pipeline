@@ -1,0 +1,14 @@
+name: pyspark_conda_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10.13
+  - conda-pack
+  - ua-parser
+  - user-agents
+  - pip
+  - pip:
+      - dotenv
+      - IP2Location
+      - psycopg2-binary
