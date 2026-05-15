@@ -7,12 +7,12 @@ from config.logger import setup_logger
 
 logger = setup_logger(name="KafkaProducer", log_folder="kafka", log_file="producer.log")
 
-# Commit offsets mỗi N messages thay vì mỗi message
+# Commit offsets every N messages instead of every message
 _COMMIT_INTERVAL = 100
 
 
 def delivery_report(err, produced_msg, msg_count_holder):
-    """Callback khi produce thành công/thất bại — KHÔNG commit offset ở đây."""
+    """Callback on produce success/failure — DO NOT commit offset here."""
     if err:
         logger.error(f"Delivery failed: {err}")
     else:
@@ -25,15 +25,15 @@ def delivery_report(err, produced_msg, msg_count_holder):
 
 
 def run_producer():
-    # Thêm session.timeout.ms và max.poll.interval.ms vào consumer config
+    # Add session.timeout.ms and max.poll.interval.ms to consumer config
     consumer_cfg = server_consumer_config
-    consumer_cfg["session.timeout.ms"] = 45000  # 45s (mặc định 10s)
-    consumer_cfg["max.poll.interval.ms"] = 300000  # 5 phút
+    consumer_cfg["session.timeout.ms"] = 45000  # 45s (default 10s)
+    consumer_cfg["max.poll.interval.ms"] = 300000  # 5 mins
     consumer_cfg["enable.auto.commit"] = False
 
     try:
         consumer = Consumer(consumer_cfg)
-        # Thêm timeout ngắn cho producer để không làm treo consumer loop quá lâu
+        # Add short timeout for producer to avoid hanging consumer loop too long
         producer_cfg = local_producer_config
         producer_cfg["message.timeout.ms"] = 30000  # 30s
         producer = Producer(producer_cfg)
@@ -50,14 +50,14 @@ def run_producer():
         sys.exit(1)
 
     msg_count_holder = [0]
-    pending_commit = 0  # Số message chưa commit
+    pending_commit = 0  # Number of uncommitted messages
 
     try:
         while True:
             msg = consumer.poll(timeout=1.0)
 
             if msg is None:
-                # Vẫn commit nếu có pending (lúc idle)
+                # Still commit if there is pending (during idle)
                 if pending_commit > 0:
                     try:
                         consumer.commit(asynchronous=False)
@@ -91,9 +91,9 @@ def run_producer():
             # Trigger delivery callbacks
             producer.poll(0)
 
-            # Commit offset mỗi _COMMIT_INTERVAL messages
+            # Commit offset every _COMMIT_INTERVAL messages
             if pending_commit >= _COMMIT_INTERVAL:
-                producer.flush()  # Đảm bảo tất cả đã gửi xong
+                producer.flush()  # Ensure all messages are sent
                 try:
                     consumer.commit(asynchronous=False)
                     pending_commit = 0
@@ -106,7 +106,7 @@ def run_producer():
         logger.info(f"Total messages forwarded: {msg_count_holder[0]}")
         logger.info("Flushing producer and closing consumer...")
         producer.flush(timeout=10)
-        # Commit lần cuối trước khi đóng
+        # Final commit before closing
         try:
             consumer.commit(asynchronous=False)
         except KafkaException:
