@@ -1,8 +1,13 @@
-from confluent_kafka import Consumer, Producer, KafkaException, KafkaError
-from confluent_kafka.admin import AdminClient, NewTopic
+from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 
-from config.base import server_consumer_config, local_producer_config, SERVER_TOPIC, SERVER_BOOTSTRAP_SERVERS, \
-    LOCAL_TOPIC, LOCAL_BOOTSTRAP_SERVERS
+from config.base import (
+    LOCAL_BOOTSTRAP_SERVERS,
+    LOCAL_TOPIC,
+    SERVER_BOOTSTRAP_SERVERS,
+    SERVER_TOPIC,
+    local_producer_config,
+    server_consumer_config,
+)
 from config.logger import setup_logger
 
 logger = setup_logger(name="KafkaProducer", log_folder="kafka", log_file="producer.log")
@@ -37,7 +42,7 @@ def run_producer():
         producer_cfg = local_producer_config
         producer_cfg["message.timeout.ms"] = 30000  # 30s
         producer = Producer(producer_cfg)
-        
+
         consumer.subscribe([SERVER_TOPIC])
         logger.info(
             f"Kafka producer started: [{SERVER_TOPIC}] "
@@ -46,6 +51,7 @@ def run_producer():
         )
     except Exception as e:
         import sys
+
         logger.error(f"Failed to initialize Kafka clients or subscribe: {e}")
         sys.exit(1)
 

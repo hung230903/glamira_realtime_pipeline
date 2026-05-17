@@ -1,33 +1,45 @@
 import psycopg2
-import logging
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    from_unixtime, date_format, col,
-    sha2, concat_ws, coalesce, lit, when,
+    coalesce,
+    col,
+    concat_ws,
+    date_format,
+    from_unixtime,
+    lit,
+    sha2,
+    when,
 )
-from pyspark.sql.types import StructType, StructField, StringType
+from pyspark.sql.types import StringType, StructField, StructType
 
-from config.logger import setup_logger
 import config.base as settings
+from config.logger import setup_logger
 from src.load.db_upserter import (
-    upsert_product_dimension, upsert_store_dimension,
-    upsert_location_dimension,
     upsert_customer_dimension,
     upsert_date_dimension,
-    upsert_device_dimension
+    upsert_device_dimension,
+    upsert_location_dimension,
+    upsert_product_dimension,
+    upsert_store_dimension,
 )
 from src.processing.data_transformer import (
-    customer_transformer, date_transformer, store_transformer,
-    browser_transformer, os_transformer, device_transformer
+    browser_transformer,
+    customer_transformer,
+    date_transformer,
+    device_transformer,
+    os_transformer,
+    store_transformer,
 )
 
 logger = setup_logger("SparkStreaming")
 
 # Lookup DF schema
-DIM_SCHEMA = StructType([
-    StructField("map_id", StringType(), True),
-    StructField("map_key", StringType(), True),
-])
+DIM_SCHEMA = StructType(
+    [
+        StructField("map_id", StringType(), True),
+        StructField("map_key", StringType(), True),
+    ]
+)
 
 
 ######################################################################
@@ -62,7 +74,13 @@ def upsert_all_dimensions(rows):
 
         # Transform and upsert LOCATION
         if row.location_id and row.location_id not in location_map:
-            loc_tuple = (row.location_id, row.country_name, row.country_short, row.region_name, row.city_name)
+            loc_tuple = (
+                row.location_id,
+                row.country_name,
+                row.country_short,
+                row.region_name,
+                row.city_name,
+            )
             logger.info("UPSERTING LOCATION DIMENSION")
             lk = upsert_location_dimension(conn, "dim_location", loc_tuple)
             location_map[row.location_id] = lk
@@ -72,56 +90,55 @@ def upsert_all_dimensions(rows):
             customer_data = customer_transformer(
                 customer_id=row.device_id,
                 email_address=row.email_address,
-                user_id_db=row.user_id_db
+                user_id_db=row.user_id_db,
             )
 
-            if customer_data['customer_id'] not in customer_map:
+            if customer_data["customer_id"] not in customer_map:
                 customer_tuple = (
-                    customer_data['customer_id'],
-                    customer_data['email_address'],
-                    customer_data['user_id_db']
+                    customer_data["customer_id"],
+                    customer_data["email_address"],
+                    customer_data["user_id_db"],
                 )
                 logger.info("UPSERTING CUSTOMER DIMENSION")
                 ck = upsert_customer_dimension(conn, "dim_customer", customer_tuple)
-                customer_map[customer_data['customer_id']] = ck
+                customer_map[customer_data["customer_id"]] = ck
 
         # Transform and upsert DEVICE
         if row.user_agent or row.resolution:
             device_data = device_transformer(row.user_agent, row.resolution)
-            if device_data['device_id'] not in device_map:
+            if device_data["device_id"] not in device_map:
                 browser = browser_transformer(row.user_agent)
                 os_name = os_transformer(row.user_agent)
                 device_tuple = (
-                    device_data['device_id'],
-                    device_data['user_agent'],
-                    device_data['resolution'],
+                    device_data["device_id"],
+                    device_data["user_agent"],
+                    device_data["resolution"],
                     os_name,
-                    browser
+                    browser,
                 )
                 logger.info("UPSERTING DEVICE DIMENSION")
                 dk = upsert_device_dimension(conn, "dim_device", device_tuple)
-                device_map[device_data['device_id']] = dk
-
+                device_map[device_data["device_id"]] = dk
 
         # Transform and upsert DATE
         if row.time_stamp:
             date_data = date_transformer(row.time_stamp)
 
             if date_data:
-                date_id = date_data['date_id']
+                date_id = date_data["date_id"]
                 if date_id not in date_map:
                     date_tuple = (
                         date_id,
-                        date_data['full_date'],
-                        date_data['date_of_week'],
-                        date_data['date_of_week_short'],
-                        date_data['is_weekday_or_weekend'],
-                        date_data['day_of_month'],
-                        date_data['day_of_year'],
-                        date_data['week_of_year'],
-                        date_data['quarter_number'],
-                        date_data['year_number'],
-                        date_data['year_month']
+                        date_data["full_date"],
+                        date_data["date_of_week"],
+                        date_data["date_of_week_short"],
+                        date_data["is_weekday_or_weekend"],
+                        date_data["day_of_month"],
+                        date_data["day_of_year"],
+                        date_data["week_of_year"],
+                        date_data["quarter_number"],
+                        date_data["year_number"],
+                        date_data["year_month"],
                     )
                     logger.info("UPSERTING DATE DIMENSION")
                     upsert_date_dimension(conn, "dim_date", date_tuple)
@@ -144,8 +161,9 @@ def create_lookup_df(spark, mapping, id_col, key_col):
     )
 
 
-def build_enriched_df(batch_df, product_map, store_map, location_map,
-                       customer_map, date_map, device_map):
+def build_enriched_df(
+    batch_df, product_map, store_map, location_map, customer_map, date_map, device_map
+):
     """
     Join batch_df with lookup DataFrames, generate fact_id with SHA-256,
     and select columns for fact_product_views.
@@ -153,7 +171,9 @@ def build_enriched_df(batch_df, product_map, store_map, location_map,
     spark = SparkSession.builder.getOrCreate()
 
     # Handle timestamp in milliseconds (if > 10^10, assume ms)
-    ts_col = when(col("time_stamp") > 9999999999, col("time_stamp") / 1000.0).otherwise(col("time_stamp"))
+    ts_col = when(col("time_stamp") > 9999999999, col("time_stamp") / 1000.0).otherwise(
+        col("time_stamp")
+    )
 
     prod_df = create_lookup_df(spark, product_map, "map_prod_id", "product_key")
     store_df = create_lookup_df(spark, store_map, "map_store_id", "store_key")
@@ -169,12 +189,14 @@ def build_enriched_df(batch_df, product_map, store_map, location_map,
     )
 
     enriched_df = (
-        batch_df
-        .join(prod_df, batch_df.product_id == prod_df.map_prod_id, "left")
+        batch_df.join(prod_df, batch_df.product_id == prod_df.map_prod_id, "left")
         .join(store_df, batch_df.store_id == store_df.map_store_id, "left")
         .join(loc_df, batch_df.loc_info.location_id == loc_df.map_loc_id, "left")
         .join(cus_df, batch_df.device_id == cus_df.map_cus_id, "left")
-        .withColumn("device_id_hash", sha2(concat_ws("_", col("user_agent"), col("resolution")), 256))
+        .withColumn(
+            "device_id_hash",
+            sha2(concat_ws("_", col("user_agent"), col("resolution")), 256),
+        )
         .join(dev_df, col("device_id_hash") == dev_df.map_dev_id, "left")
         .join(
             date_df,
@@ -247,9 +269,18 @@ def write_fact_table(enriched_df):
 
         batch = [
             (
-                r.fact_id, r.product_id, r.store_id, r.location_id,
-                r.customer_id, r.device_id, r.date_id, r.ip_address, r.time_stamp,
-                r.collection, r.current_url, r.referrer_url,
+                r.fact_id,
+                r.product_id,
+                r.store_id,
+                r.location_id,
+                r.customer_id,
+                r.device_id,
+                r.date_id,
+                r.ip_address,
+                r.time_stamp,
+                r.collection,
+                r.current_url,
+                r.referrer_url,
             )
             for r in rows
         ]
@@ -281,14 +312,27 @@ def process_batch(batch_df, batch_id):
 
     # Collect rows & upsert dimensions
     rows = batch_df.select(
-        "collection", "current_url", "referrer_url", "product_id", "store_id", "user_agent", "user_id_db", "resolution",
-        "time_stamp", "email_address", "device_id",
-        "loc_info.location_id", "loc_info.country_name", "loc_info.country_short", "loc_info.region_name",
-        "loc_info.city_name"
-
+        "collection",
+        "current_url",
+        "referrer_url",
+        "product_id",
+        "store_id",
+        "user_agent",
+        "user_id_db",
+        "resolution",
+        "time_stamp",
+        "email_address",
+        "device_id",
+        "loc_info.location_id",
+        "loc_info.country_name",
+        "loc_info.country_short",
+        "loc_info.region_name",
+        "loc_info.city_name",
     ).collect()
 
-    logger.info(f"Collected {len(rows)} rows from batch {batch_id} for dimension upserts.")
+    logger.info(
+        f"Collected {len(rows)} rows from batch {batch_id} for dimension upserts."
+    )
 
     product_map, store_map, location_map, customer_map, date_map, device_map = (
         upsert_all_dimensions(rows)
@@ -296,7 +340,13 @@ def process_batch(batch_df, batch_id):
 
     # Enrich batch with dimension keys
     enriched_df = build_enriched_df(
-        batch_df, product_map, store_map, location_map, customer_map, date_map, device_map
+        batch_df,
+        product_map,
+        store_map,
+        location_map,
+        customer_map,
+        date_map,
+        device_map,
     )
 
     count_enriched = enriched_df.count()
